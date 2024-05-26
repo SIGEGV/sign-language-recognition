@@ -1,10 +1,11 @@
+#for CNNmodel, sign-lang.
 import cv2
-import mediapipe as mp
 import numpy as np
+import mediapipe as mp
 from tensorflow.keras.models import load_model
 
 # Load your pre-trained Keras model
-model = load_model('models/sign-lang.h5')
+model = load_model('models/SignDetection_model.h5')
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -49,9 +50,20 @@ while True:
             # Crop the region around the hand
             hand_region = frame[y_min:y_max, x_min:x_max]
 
+            # Check if hand_region is empty
+            if hand_region is None or hand_region.size == 0:
+                print("Error: Hand region is empty.")
+                continue
+
             # Resize the hand region to 28x28 pixels and convert to grayscale
             hand_region_resized = cv2.resize(hand_region, (28, 28))
             hand_region_gray = cv2.cvtColor(hand_region_resized, cv2.COLOR_BGR2GRAY)
+
+ 
+            # Ensure that hand_region_gray has shape (28, 28)
+            if hand_region_gray.shape != (28, 28):
+                print("Error: Hand region is not properly resized.")
+                continue
 
             # Convert the grayscale image to the format required by the model
             hand_region_input = hand_region_gray.reshape(1, 28, 28, 1).astype('float32')
