@@ -1,100 +1,110 @@
-#for CNNmodel, sign-lang.
+import os
 import cv2
-import numpy as np
 import mediapipe as mp
-from tensorflow.keras.models import load_model
+from keras.models import load_model
+import numpy as np
+import pandas as pd
 
-# Load your pre-trained Keras model
-model = load_model('models/SignDetection_model.h5')
+# Load the pre-trained Keras model
+model = load_model('models/mnist2_model.h5')
 
-# Initialize MediaPipe Hands
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands()
+# Initialize MediaPipe hands
+mphands = mp.solutions.hands
+hands = mphands.Hands()
+mp_drawing = mp.solutions.drawing_utils
 
-# Initialize Video Capture (webcam)
-cap = cv2.VideoCapture(0)
+# Letters for prediction (excluding 'J' and 'Z' due to gesture motion)
+letterpred = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y']
 
-# Define dictionary to map class indices to sign language labels
-sign_language_labels = {
-    0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G', 7: 'H',
-    8: 'I', 9: 'J', 10: 'K', 11: 'L', 12: 'M', 13: 'N', 14: 'O', 15: 'P',
-    16: 'Q', 17: 'R', 18: 'S', 19: 'T', 20: 'U', 21: 'V', 22: 'W', 23: 'X'
-}
+# Video source (0 for default webcam)
+url = 0
 
-# Main loop
+# Initialize video capture
+cap = cv2.VideoCapture(url)
+_, frame = cap.read()
+h, w, c = frame.shape
+print(h, w)
+
 while True:
-    # Read a frame from the webcam
     ret, frame = cap.read()
-    
-    # If frame was not read, break the loop
     if not ret:
         break
-    
-    # Convert frame to RGB (MediaPipe requires RGB)
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Process the frame with MediaPipe Hands
-    results = hands.process(rgb_frame)
-    
-    # Check if any hands are detected
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            # Get the bounding box of the detected hand
-            x_min, y_min = np.min([(lm.x, lm.y) for lm in hand_landmarks.landmark], axis=0)
-            x_max, y_max = np.max([(lm.x, lm.y) for lm in hand_landmarks.landmark], axis=0)
 
-            # Convert bounding box coordinates to pixel values
-            x_min, y_min = int(x_min * frame.shape[1]), int(y_min * frame.shape[0])
-            x_max, y_max = int(x_max * frame.shape[1]), int(y_max * frame.shape[0])
+    analysisframe = frame
+    framergbanalysis = cv2.cvtColor(analysisframe, cv2.COLOR_BGR2RGB)
+    resultanalysis = hands.process(framergbanalysis)
+    hand_landmarksanalysis = resultanalysis.multi_hand_landmarks
 
-            # Crop the region around the hand
-            hand_region = frame[y_min:y_max, x_min:x_max]
+    if hand_landmarksanalysis:
+        print('Hand Detected')
+        
+        for handLMsanalysis in hand_landmarksanalysis:
+            x_min = w
+            x_max = 0
+            y_min = h
+            y_max = 0
 
-            # Check if hand_region is empty
-            if hand_region is None or hand_region.size == 0:
-                print("Error: Hand region is empty.")
-                continue
-
-            # Resize the hand region to 28x28 pixels and convert to grayscale
-            hand_region_resized = cv2.resize(hand_region, (28, 28))
-            hand_region_gray = cv2.cvtColor(hand_region_resized, cv2.COLOR_BGR2GRAY)
-
- 
-            # Ensure that hand_region_gray has shape (28, 28)
-            if hand_region_gray.shape != (28, 28):
-                print("Error: Hand region is not properly resized.")
-                continue
-
-            # Convert the grayscale image to the format required by the model
-            hand_region_input = hand_region_gray.reshape(1, 28, 28, 1).astype('float32')
-
-            # Predict the sign language gesture using the model
-            prediction = model.predict(hand_region_input)
-
-            # Process the prediction (e.g., find the index of the maximum probability)
-            predicted_class = np.argmax(prediction, axis=1)[0]
-
-            # Get the label of the predicted class
-            predicted_label = sign_language_labels.get(predicted_class, 'Unknown')
+            for landmarks in handLMsanalysis.landmark:
+                x, y  = int(landmarks.x * w), int(landmarks.y * h)
+                if x > x_max:
+                    x_max = x
+                if x < x_min:
+                    x_min = x
+                if y > y_max:
+                    y_max = y
+                if y < y_min:
+                    y_min = y
             
-            # Display the predicted label on the frame
-            cv2.putText(frame, f'Prediction: {predicted_label}', (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-            
-            # Draw landmarks and connections on the frame
-            mp.solutions.drawing_utils.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
-            )
-    
+            y_min -= 20
+            y_max += 20
+            x_min -= 20
+            x_max += 20
+
+            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 3)
+            mp_drawing.draw_landmarks(frame, handLMsanalysis, mphands.HAND_CONNECTIONS)
+
+            try:
+                analysisframe = cv2.cvtColor(analysisframe, cv2.COLOR_BGR2GRAY)
+                analysisframe = analysisframe[y_min:y_max, x_min:x_max]
+                analysisframe = cv2.resize(analysisframe, (28, 28))
+                flat_image = analysisframe.flatten()
+                datan = pd.DataFrame(flat_image).T
+                pixeldata = datan.values
+                pixeldata = pixeldata / 255
+                pixeldata = pixeldata.reshape(-1, 28, 28, 1)
+
+                # Prediction
+                prediction = model.predict(pixeldata)
+                predarray = np.array(prediction[0])
+
+                letter_prediction_dict = {letterpred[i]: predarray[i] for i in range(len(letterpred))}
+                letter, probabality = "", 0
+
+                for key, value in letter_prediction_dict.items():
+                    if value > probabality:
+                        probabality = value
+                        letter = key
+
+                letter = "{} prob:{}".format(letter, probabality)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                position = (x_max, y_min)  # Specify the (x, y) coordinates where you want to place the text
+                font_scale = round(h / 400)  # Font scale
+
+                font_color = (255, 255, 255)  # Font color in BGR format (white in this example)
+                font_thickness = round(h / 200)  # Font thickness
+
+                # Draw the text on the frame
+                cv2.putText(frame, letter, position, font, font_scale, font_color, font_thickness)
+                print(letter, probabality)
+
+            except cv2.error as e:
+                pass
+
     # Display the frame
-    cv2.imshow('Sign Language Detection', frame)
+    cv2.imshow("Sign Language Detection", frame)
     
-    # Exit if 'q' is pressed
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Release video capture and close windows
 cap.release()
 cv2.destroyAllWindows()
