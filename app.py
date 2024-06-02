@@ -4,6 +4,12 @@ import mediapipe as mp
 from keras.models import load_model
 import numpy as np
 import pandas as pd
+import time
+from gtts import gTTS
+import pygame
+
+# Initialize pygame mixer
+pygame.mixer.init()
 
 # Load the pre-trained Keras model
 model = load_model('models/mnist2_model.h5')
@@ -13,7 +19,7 @@ mphands = mp.solutions.hands
 hands = mphands.Hands()
 mp_drawing = mp.solutions.drawing_utils
 
-# Letters for prediction (excluding 'J' and 'Z' due to gesture motion)
+s = ""
 letterpred = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y']
 
 # Video source (0 for default webcam)
@@ -24,6 +30,10 @@ cap = cv2.VideoCapture(url)
 _, frame = cap.read()
 h, w, c = frame.shape
 print(h, w)
+
+# Initialize timing variables
+start_time = None
+threshold_seconds = 1.0  # Set the threshold time in seconds
 
 while True:
     ret, frame = cap.read()
@@ -36,8 +46,6 @@ while True:
     hand_landmarksanalysis = resultanalysis.multi_hand_landmarks
 
     if hand_landmarksanalysis:
-        print('Hand Detected')
-        
         for handLMsanalysis in hand_landmarksanalysis:
             x_min = w
             x_max = 0
@@ -45,7 +53,7 @@ while True:
             y_max = 0
 
             for landmarks in handLMsanalysis.landmark:
-                x, y  = int(landmarks.x * w), int(landmarks.y * h)
+                x, y = int(landmarks.x * w), int(landmarks.y * h)
                 if x > x_max:
                     x_max = x
                 if x < x_min:
@@ -78,14 +86,27 @@ while True:
                 predarray = np.array(prediction[0])
 
                 letter_prediction_dict = {letterpred[i]: predarray[i] for i in range(len(letterpred))}
-                letter, probabality = "", 0
+                letter, probability = "", 0
 
                 for key, value in letter_prediction_dict.items():
-                    if value > probabality:
-                        probabality = value
+                    if value > probability:
+                        probability = value
                         letter = key
 
-                letter = "{} prob:{}".format(letter, probabality)
+                # Check the timing mechanism
+                current_time = time.time()
+                if probability == 1.0:
+                    if start_time is None:
+                        start_time = current_time
+                    elif current_time - start_time >= threshold_seconds:
+                        print(f"Predicted Letter: {letter} with probability: {probability}")
+                        s += letter
+                        start_time = None  # Reset start_time after adding letter
+                else:
+                    start_time = None  # Reset timer if prediction is not 1
+
+                # Format the letter and probability for display
+                letter_display = "{} prob:{}".format(letter, probability)
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 position = (x_max, y_min)  # Specify the (x, y) coordinates where you want to place the text
                 font_scale = round(h / 400)  # Font scale
@@ -94,8 +115,7 @@ while True:
                 font_thickness = round(h / 200)  # Font thickness
 
                 # Draw the text on the frame
-                cv2.putText(frame, letter, position, font, font_scale, font_color, font_thickness)
-                print(letter, probabality)
+                cv2.putText(frame, letter_display, position, font, font_scale, font_color, font_thickness)
 
             except cv2.error as e:
                 pass
@@ -108,3 +128,17 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+
+# Convert the accumulated string to speech using gTTS
+tts = gTTS(s, lang='en')
+tts.save("output.mp3")
+
+# Play the audio file using pygame
+pygame.mixer.music.load("output.mp3")
+pygame.mixer.music.play()
+
+# Keep the program running until the audio finishes playing
+while pygame.mixer.music.get_busy():
+    pygame.time.Clock().tick(10)
+
+print(s)
