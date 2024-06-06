@@ -1,4 +1,3 @@
-import os
 import cv2
 import mediapipe as mp
 from keras.models import load_model
@@ -12,11 +11,11 @@ import pygame
 pygame.mixer.init()
 
 # Load the pre-trained Keras model
-model = load_model('models/mnist2_model.h5')
+model = load_model('models/mnist2.h5')
 
-# Initialize MediaPipe hands
+# Initialize MediaPipe hands with higher confidence thresholds
 mphands = mp.solutions.hands
-hands = mphands.Hands()
+hands = mphands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.8)
 mp_drawing = mp.solutions.drawing_utils
 
 s = ""
@@ -34,6 +33,7 @@ print(h, w)
 # Initialize timing variables
 start_time = None
 threshold_seconds = 1.0  # Set the threshold time in seconds
+timer_start_time = None  # Start the timer
 
 while True:
     ret, frame = cap.read()
@@ -62,11 +62,12 @@ while True:
                     y_max = y
                 if y < y_min:
                     y_min = y
-            
-            y_min -= 20
-            y_max += 20
-            x_min -= 20
-            x_max += 20
+
+            # Ensure bounding box is within the frame dimensions
+            y_min = max(0, y_min - 20)
+            y_max = min(h, y_max + 20)
+            x_min = max(0, x_min - 20)
+            x_max = min(w, x_max + 20)
 
             cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 3)
             mp_drawing.draw_landmarks(frame, handLMsanalysis, mphands.HAND_CONNECTIONS)
@@ -93,17 +94,25 @@ while True:
                         probability = value
                         letter = key
 
-                # Check the timing mechanism
                 current_time = time.time()
+
+                # Check if prediction is 1.0 and start the timer
                 if probability == 1.0:
-                    if start_time is None:
-                        start_time = current_time
-                    elif current_time - start_time >= threshold_seconds:
+                    if timer_start_time is None:
+                        timer_start_time = current_time
+                    elapsed_time = current_time - timer_start_time
+                    if elapsed_time >= threshold_seconds:
                         print(f"Predicted Letter: {letter} with probability: {probability}")
                         s += letter
-                        start_time = None  # Reset start_time after adding letter
+                        timer_start_time = None  # Reset timer after adding letter
                 else:
-                    start_time = None  # Reset timer if prediction is not 1
+                    timer_start_time = None  # Reset timer if prediction is not 1.0
+
+                # Show the timer if hand is detected and prediction is 1.0
+                if timer_start_time is not None:
+                    elapsed_time = current_time - timer_start_time
+                    timer_display = "Timer: {:.2f}".format(elapsed_time)
+                    cv2.putText(frame, timer_display, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
                 # Format the letter and probability for display
                 letter_display = "{} prob:{}".format(letter, probability)
@@ -122,23 +131,39 @@ while True:
 
     # Display the frame
     cv2.imshow("Sign Language Detection", frame)
-    
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
         break
+    elif key == 13:  # Enter key
+        try:
+            if not s:
+                raise ValueError("Empty string")
+            # Convert the accumulated string to speech using gTTS
+            tts = gTTS(s, lang='en')
+            tts.save("output.mp3")
+
+            # Play the audio file using pygame
+            pygame.mixer.music.load("output.mp3")
+            pygame.mixer.music.play()
+
+            # Keep the program running until the audio finishes playing
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+
+        except ValueError as e:
+            # Handle the empty string case
+            tts = gTTS("No text to speak", lang='en')
+            tts.save("output.mp3")
+
+            # Play the audio file using pygame
+            pygame.mixer.music.load("output.mp3")
+            pygame.mixer.music.play()
+
+            # Keep the program running until the audio finishes playing
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
 
 cap.release()
 cv2.destroyAllWindows()
-
-# Convert the accumulated string to speech using gTTS
-tts = gTTS(s, lang='en')
-tts.save("output.mp3")
-
-# Play the audio file using pygame
-pygame.mixer.music.load("output.mp3")
-pygame.mixer.music.play()
-
-# Keep the program running until the audio finishes playing
-while pygame.mixer.music.get_busy():
-    pygame.time.Clock().tick(10)
-
 print(s)
